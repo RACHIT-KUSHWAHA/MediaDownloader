@@ -155,6 +155,10 @@ def extract_video_info(url: str, message_id: int) -> dict:
         'merge_output_format': 'mp4'
     }
     
+    # Load authentication cookies if provided to bypass Instagram/YouTube rate limits
+    if os.path.exists("cookies.txt"):
+        ydl_opts['cookiefile'] = "cookies.txt"
+    
     if ffmpeg_path:
         ydl_opts['ffmpeg_location'] = ffmpeg_path
         
