@@ -23,9 +23,20 @@ except RuntimeError:
 # Pyrogram for high-speed Telegram interaction
 import pyrogram
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import (
+    Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
+    InlineQuery, InlineQueryResultVideo, InputTextMessageContent
+)
 from pyrogram.enums import ParseMode
 import yt_dlp
+
+# --- FastAPI Web Dashboard Engine ---
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+import uvicorn
+import contextlib
 
 # ------------------------------------------------------------------
 # Initialization & Configuration
@@ -60,6 +71,11 @@ if not all([API_ID, API_HASH, BOT_TOKEN]):
 is_shutting_down = False
 active_tasks = set()
 BOT_START_TIME = time.time()
+DOWNLOAD_SEMAPHORE = None  # Instantiated safely inside the main AsyncIO loop
+
+# FastAPI Core Application
+web_app = FastAPI(title="Media Downloader Dash")
+templates = Jinja2Templates(directory="web_templates")
 
 # User Tracking Storage
 USERS_FILE = "users.txt"
@@ -67,10 +83,10 @@ tracked_users = set()
 
 # Regex to detect links from various platforms (Instagram, TikTok, YouTube, Twitter/X, Pinterest, Facebook)
 SUPPORTED_LINKS_REGEX = (
-    r"https?://(?:www\.)?(?:instagram\.com|instagr\.am)/[a-zA-Z0-9_.-]+/?.*|"
+    r"https?://(?:www\.)?(?:instagram\.com|instagr\.am)/(?:p|reels?|tv|[\w.-]+)/[a-zA-Z0-9_-]+/?.*|"
     r"https?://(?:www\.)?(?:tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)/.*|"
-    r"https?://(?:www\.)?(?:youtube\.com/shorts/|youtu\.be/|youtube\.com/watch\?v=)[a-zA-Z0-9_-]+|"
-    r"https?://(?:www\.)?(?:twitter\.com|x\.com)/[a-zA-Z0-9_]+/status/[0-9]+|"
+    r"https?://(?:www\.)?(?:youtube\.com|youtu\.be|m\.youtube\.com)/.*|"
+    r"https?://(?:www\.)?(?:twitter\.com|x\.com)/[a-zA-Z0-9_]+/status/[0-9]+/?.*|"
     r"https?://(?:www\.)?(?:pinterest\.com|pin\.it)/.*|"
     r"https?://(?:www\.)?(?:facebook\.com|fb\.watch)/.*"
 )
@@ -172,24 +188,26 @@ def extract_video_info(url: str, message_id: int) -> dict:
         if filesize > 50 * 1024 * 1024:
             raise ValueError("TooLarge")
             
-        # Download and allow FFmpeg to merge video + audio
+        return info
+
+def download_video_to_disk(url: str, message_id: int, opts: dict) -> str:
+    """Distinctly downloads the file to disk using yt-dlp."""
+    os.makedirs("downloads", exist_ok=True)
+    with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
         
         # Locate the downloaded and merged file on disk
         files = glob.glob(f"downloads/{message_id}_*.*")
         final_file = None
         for f in files:
-            # We want to ignore partial parts or unmerged streams
             if not f.endswith(('.part', '.ytdl', '.webm', '.m4a')):
                 final_file = f
                 break
         
-        # Fallback if only one file exists
         if not final_file and files:
             final_file = files[0]
             
-        info['filepath'] = final_file
-        return info
+        return final_file
 
 async def progress_callback(current: int, total: int, message: Message, start_time: float, action_text: str):
     """
@@ -303,30 +321,47 @@ async def handle_media_links(client: Client, message: Message):
     
     try:
         # Regex captures complete valid URLs directly
-        # Use set() to deduplicate in case regex catches multiple variations of the same link
         raw_urls = re.findall(SUPPORTED_LINKS_REGEX, message.text)
         urls = list(set(raw_urls))
         
         # Process multiple links sequentially to avoid UI overlay collisions
         for url in urls:
-            status_msg = await message.reply_text("⏳ <b>Analyzing Link...</b>", parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            status_msg = await message.reply_text("⏳ <b>Analyzing Link & Queueing...</b>", parse_mode=ParseMode.HTML, disable_web_page_preview=True)
             try:
-                # Threaded yt-dlp metadata extraction and disk download with 5-minute timeout netting
-                try:
-                    info = await asyncio.wait_for(
-                        asyncio.to_thread(extract_video_info, url, message.id), 
-                        timeout=300.0
-                    )
-                except (asyncio.TimeoutError, TimeoutError):
-                    await status_msg.edit_text("❌ <b>Extraction timed out.</b> The server network might be unstable or the file is too large.", parse_mode=ParseMode.HTML)
-                    continue
-                except ValueError as ve:
-                    if str(ve) == "TooLarge":
-                        await status_msg.edit_text("❌ File too large! Please keep links under 50MB to prevent server crashes.", parse_mode=ParseMode.HTML)
+                # --------------------- STRICT 1GB RAM CONCURRENCY LOCK ---------------------
+                # We acquire the global lock. If 2 videos are already downloading, we wait gracefully.
+                async with DOWNLOAD_SEMAPHORE:
+                    await status_msg.edit_text("⏳ <b>Extracting internal manifests...</b>", parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                    try:
+                        info = await asyncio.wait_for(
+                            asyncio.to_thread(extract_video_info, url, message.id), 
+                            timeout=300.0
+                        )
+                    except (asyncio.TimeoutError, TimeoutError):
+                        await status_msg.edit_text("❌ <b>Extraction timed out.</b> The server network might be unstable.", parse_mode=ParseMode.HTML)
                         continue
-                    raise ve
+                    except ValueError as ve:
+                        if str(ve) == "TooLarge":
+                            await status_msg.edit_text("❌ File too large! Please keep links under 50MB to prevent server crashes.", parse_mode=ParseMode.HTML)
+                            continue
+                        raise ve
+                        
+                    await status_msg.edit_text("📥 <b>Downloading to Server Disk...</b>", parse_mode=ParseMode.HTML)
                     
-                filepath = info.get('filepath')
+                    # Re-build the options exactly as extract_video_info did to funnel the download
+                    ffmpeg_path = shutil.which("ffmpeg")
+                    ydl_opts = {
+                        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                        'quiet': True, 'no_warnings': True, 'geo_bypass': True,
+                        'outtmpl': f"downloads/{message.id}_%(id)s.%(ext)s",
+                        'merge_output_format': 'mp4'
+                    }
+                    if os.path.exists("cookies.txt"): ydl_opts['cookiefile'] = "cookies.txt"
+                    if ffmpeg_path: ydl_opts['ffmpeg_location'] = ffmpeg_path
+                    
+                    filepath = await asyncio.to_thread(download_video_to_disk, url, message.id, ydl_opts)
+                # --------------------- END OF CONCURRENCY LOCK -----------------------------
+                
                 if not filepath or not os.path.exists(filepath):
                     raise ValueError("Download failed, file not found on disk.")
                 
@@ -491,14 +526,137 @@ async def handle_broadcast_command(client: Client, message: Message):
     await status_msg.edit_text(report, parse_mode=ParseMode.HTML)
 
 # ------------------------------------------------------------------
+# Phase 2: Inline Query Mode (Zero-Bandwidth Telegram Feature)
+# ------------------------------------------------------------------
+
+async def handle_inline_query(client: Client, query: InlineQuery):
+    """
+    Triggers when a user types `@bot_username <link>` in ANY chat.
+    We extract the target streaming URL directly without downloading, and serve it instantly!
+    """
+    query_text = query.query.strip()
+    
+    # Use re.search and handle None explicitly to prevent crashes
+    url_match = re.search(SUPPORTED_LINKS_REGEX, query_text)
+    if not url_match:
+        return
+        
+    url = url_match.group(0)
+    
+    try:
+        # Notice we extract info with Semaphore lock to prevent rate-limit flooding in case of spam
+        async with DOWNLOAD_SEMAPHORE:
+            # We pass a placeholder id since we aren't saving to disk
+            info = await asyncio.wait_for(
+                asyncio.to_thread(extract_video_info, url, int(time.time())), 
+                timeout=20.0
+            )
+            
+        if "TooLarge" in str(info):
+            return # Can't inline stream >50MB cleanly
+            
+        title = info.get('title', 'Media Result')
+        thumb_url = info.get('thumbnail', '')
+        
+        # Priority: Direct MP4 format (highest quality but strictly MP4)
+        stream_url = None
+        if 'formats' in info:
+            # Filter for mp4 formats with both video and audio
+            valid_mp4s = [
+                f for f in info['formats'] 
+                if f.get('ext') == 'mp4' 
+                and f.get('url') 
+                and f.get('vcodec') != 'none' 
+                and f.get('acodec') != 'none'
+            ]
+            if valid_mp4s:
+                stream_url = valid_mp4s[-1]['url']
+        
+        # Fallback to general url if no perfect mp4 found
+        if not stream_url:
+            stream_url = info.get('url')
+            
+        if not stream_url:
+            return
+            
+        results = [
+            InlineQueryResultVideo(
+                video_url=stream_url,
+                thumb_url=thumb_url or stream_url,
+                title=title[:60],
+                mime_type="video/mp4",
+                video_duration=int(info.get('duration', 0))
+            )
+        ]
+        # set is_personal=True to avoid server-side caching issues for these expiring URLs
+        await query.answer(results, cache_time=0, is_personal=True)
+    except Exception as e:
+        logger.warning(f"Inline Query Extraction failed: {e}")
+
+# ------------------------------------------------------------------
+# Phase 2: Web Dashboard Routing (FastAPI)
+# ------------------------------------------------------------------
+
+class ExtractionRequest(BaseModel):
+    url: str
+
+@web_app.get("/", response_class=HTMLResponse)
+async def serve_dashboard(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@web_app.post("/api/extract")
+async def api_extract_media(req: ExtractionRequest):
+    """
+    Takes a link pasted into the Web UI, leverages the shared Python Semaphore 
+    to extract the raw streams safely, and returns the direct .url objects.
+    """
+    url = req.url.strip()
+    if not url or not re.match(SUPPORTED_LINKS_REGEX, url):
+         raise HTTPException(status_code=400, detail="Invalid Support Link format.")
+         
+    try:
+        async with DOWNLOAD_SEMAPHORE:
+            info = await asyncio.wait_for(
+                asyncio.to_thread(extract_video_info, url, int(time.time())), 
+                timeout=60.0
+            )
+            
+        title = info.get('title', 'Extracted Media')
+        # We need the highest quality direct URL
+        direct_video = info.get('url') 
+        direct_audio = None
+        
+        # In case formats are detached (like YouTube Dash)
+        if 'requested_formats' in info:
+            for fmt in info['requested_formats']:
+                if fmt.get('vcodec') != 'none':
+                    direct_video = fmt.get('url')
+                elif fmt.get('acodec') != 'none':
+                    direct_audio = fmt.get('url')
+                    
+        return JSONResponse({
+            "success": True, 
+            "title": title, 
+            "video_url": direct_video, 
+            "audio_url": direct_audio or direct_video
+        })
+    except Exception as e:
+        logger.error(f"Web API Extraction failed: {e}", exc_info=True)
+        if "TooLarge" in str(e):
+             raise HTTPException(status_code=400, detail="File too large (>50MB).")
+        raise HTTPException(status_code=500, detail="Extraction Engine Error. The Video may be private, age-restricted, or rate-limited.")
+
+# ------------------------------------------------------------------
 # Main Loop and Graceful Shutdown
 # ------------------------------------------------------------------
 
 async def main():
-    global is_shutting_down
+    global is_shutting_down, DOWNLOAD_SEMAPHORE
+    # Setup the globally shared extraction choke-point (Max 2 simultaneous tasks)
+    DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
     
     # Initialize Pyrogram App safely inside the active asyncio loop
-    from pyrogram.handlers import MessageHandler, CallbackQueryHandler
+    from pyrogram.handlers import MessageHandler, CallbackQueryHandler, InlineQueryHandler
     app = Client(
         "ig_reels_bot",
         api_id=int(API_ID),
@@ -528,6 +686,7 @@ async def main():
         handle_check_join,
         filters.regex("^check_join$")
     ))
+    app.add_handler(InlineQueryHandler(handle_inline_query))
     
     # Hydrate tracked users at boot
     load_users()
@@ -536,7 +695,18 @@ async def main():
     await app.start()
     logger.info("Bot is active and polling. Ready for links!")
 
+    # -----------------------------------------------------
+    # Spin up Uvicorn (FastAPI) inside the Pyrogram Event Loop
+    # -----------------------------------------------------
     loop = asyncio.get_running_loop()
+    
+    config = uvicorn.Config(app=web_app, host="0.0.0.0", port=8000, loop="none")
+    server = uvicorn.Server(config)
+    
+    # Deploy fastapi server into a concurrent task
+    fastapi_task = loop.create_task(server.serve())
+    logger.info("⚡ Web Dashboard launched on port 8000.")
+
     stop_event = asyncio.Event()
 
     # Trap container interruption signals (Kubernetes/Docker/Ctrl+C)
@@ -562,6 +732,8 @@ async def main():
         logger.info(f"Waiting for {len(active_tasks)} active task(s) to finalize...")
         await asyncio.gather(*active_tasks, return_exceptions=True)
 
+    server.should_exit = True
+    await fastapi_task
     await app.stop()
     logger.info("Cleanup complete. Container exiting.")
 
