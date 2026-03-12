@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaBox — Professional Collection Hub</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        zinc: { 950: '#09090b', 850: '#18181b', 750: '#27272a' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root { --accent: #000; --bg: #ffffff; }
+        .dark { --accent: #fff; --bg: #000000; }
+        
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--bg); 
+            color: var(--accent);
+            transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        h1, h2, h3, .font-outfit { font-family: 'Outfit', sans-serif; }
+
+        /* Remove Blue Autofill */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover, 
+        input:-webkit-autofill:focus {
+            -webkit-box-shadow: 0 0 0px 1000px transparent inset !important;
+            transition: background-color 5000s ease-in-out 0s;
+            -webkit-text-fill-color: var(--accent) !important;
+        }
+
+        .search-rail {
+            background: rgba(161, 161, 170, 0.05);
+            border: 1px solid rgba(161, 161, 170, 0.15);
+            transition: border-color 0.3s ease;
+        }
+        .dark .search-rail { background: #09090b; border-color: #18181b; }
+        .search-rail:focus-within { border-color: var(--accent); }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg);
+            transition: all 0.2s ease;
+        }
+        .btn-primary:hover { opacity: 0.85; transform: scale(0.98); }
+        .btn-primary:active { transform: scale(0.96); }
+
+        .player-frame {
+            background: #000;
+            border: 1px solid rgba(161, 161, 170, 0.1);
+            border-radius: 1.5rem;
+            max-height: 520px;
+            width: fit-content;
+            overflow: hidden;
+            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.1);
+        }
+        .dark .player-frame { border-color: #18181b; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        
+        video { max-height: 520px; width: auto; max-width: 100%; display: block; }
+
+        .card-boutique {
+            background: rgba(161, 161, 170, 0.03);
+            border: 1px solid rgba(161, 161, 170, 0.1);
+            border-radius: 1.25rem;
+            transition: all 0.2s ease;
+        }
+        .dark .card-boutique { background: #09090b; border-color: #18181b; }
+        .card-boutique:hover { border-color: var(--accent); }
+
+        .tag { font-size: 10px; font-weight: 800; letter-spacing: 0.25em; text-transform: uppercase; color: #71717a; }
+        
+        @keyframes reveal { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .reveal { animation: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    </style>
+</head>
+<body class="selection:bg-zinc-400 selection:text-white">
+
+    <div class="max-w-6xl mx-auto px-6 py-12 md:py-20 lg:py-24">
+        
+        <!-- Navigation -->
+        <header class="mb-16 flex justify-between items-center">
+            <h1 class="text-2xl font-black tracking-tighter uppercase italic">Xolv</h1>
+            <button id="themeToggle" class="p-2.5 rounded-full border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all">
+                <span id="themeIcon" class="text-sm">🌙</span>
+            </button>
+        </header>
+
+        <!-- Main Input Section -->
+        <section class="mb-24 max-w-2xl mx-auto">
+            <div class="search-rail flex items-center p-1.5 rounded-2xl shadow-sm">
+                <input type="url" id="urlInput" placeholder="Paste link to solve..." 
+                class="bg-transparent flex-1 px-6 py-4 text-base font-light outline-none">
+                <button id="extractBtn" class="btn-primary px-10 py-4 rounded-xl text-[11px] font-black uppercase tracking-widest">
+                    Solve
+                </button>
+            </div>
+            <p id="errorMsg" class="mt-5 text-center text-[10px] text-rose-500 font-bold uppercase hidden tracking-widest"></p>
+        </section>
+
+        <!-- Final Boutique Showcase -->
+        <section id="results" class="hidden opacity-0 reveal">
+            <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center md:items-start justify-center gap-12 md:gap-16">
+                
+                <!-- Left Side: Player -->
+                <div class="w-full md:w-auto flex justify-center">
+                    <div class="player-frame shadow-2xl shrink-0">
+                        <video id="player" controls playsinline class="hidden"></video>
+                        <div id="loader" class="px-16 py-32 md:px-24 md:py-40 flex flex-col items-center justify-center space-y-4">
+                            <div class="w-6 h-6 border-2 border-zinc-200 dark:border-zinc-800 border-t-zinc-600 dark:border-t-white rounded-full animate-spin"></div>
+                            <span class="tag">Syncing</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Side: Info & Controls -->
+                <div class="flex-1 w-full text-center md:text-left space-y-8">
+                    <div class="pb-8 border-b border-zinc-100 dark:border-zinc-900">
+                        <h2 id="title" class="text-3xl md:text-5xl font-black leading-tight tracking-tight mb-6 font-outfit"></h2>
+                        <div class="flex flex-wrap gap-6 items-center justify-center md:justify-start">
+                            <div class="tag flex items-center gap-2">
+                                <span class="opacity-50">By</span> <span id="uploader" class="text-zinc-500 dark:text-zinc-300"></span>
+                            </div>
+                            <div class="tag flex items-center gap-2">
+                                <span class="opacity-50">Duration</span> <span id="duration" class="text-zinc-500 dark:text-zinc-300"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Hero Download Button -->
+                    <div id="heroDownloadArea" class="py-4">
+                        <a id="bigDownloadBtn" href="#" download target="_blank" class="inline-block bg-black dark:bg-white text-white dark:text-black px-12 py-5 rounded-2xl text-base font-black uppercase tracking-[0.2em] shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all">
+                            Download Video
+                        </a>
+                    </div>
+                    
+                    <div class="flex flex-wrap gap-4 justify-center md:justify-start pt-4">
+                        <a href="https://t.me/TheTimepassSquad" target="_blank" class="tag bg-zinc-100 dark:bg-zinc-900 px-5 py-2.5 rounded-full hover:text-black dark:hover:text-white transition-all">
+                            Support Squad
+                        </a>
+                        <a href="https://t.me/BeyondRachit" target="_blank" class="tag bg-zinc-100 dark:bg-zinc-900 px-5 py-2.5 rounded-full hover:text-black dark:hover:text-white transition-all">
+                            Developer
+                        </a>
+                    </div>
+                    
+                    <div class="pt-8">
+                        <h3 class="tag mb-6 text-zinc-400">Other Formats</h3>
+                        <div id="formats" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <!-- Cards Injected -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- History Strip -->
+        <footer id="history" class="hidden mt-40 pt-16 border-t border-zinc-100 dark:border-zinc-900">
+            <h4 class="tag mb-8 opacity-40">Recent Activity</h4>
+            <div id="historyGrid" class="flex flex-wrap gap-3"></div>
+        </footer>
+
+    </div>
+
+    <script>
+        const ui = {
+            html: document.documentElement,
+            input: document.getElementById('urlInput'),
+            btn: document.getElementById('extractBtn'),
+            results: document.getElementById('results'),
+            player: document.getElementById('player'),
+            loader: document.getElementById('loader'),
+            title: document.getElementById('title'),
+            uploader: document.getElementById('uploader'),
+            duration: document.getElementById('duration'),
+            formats: document.getElementById('formats'),
+            error: document.getElementById('errorMsg'),
+            history: document.getElementById('history'),
+            hGrid: document.getElementById('historyGrid'),
+            themeBtn: document.getElementById('themeToggle'),
+            themeIcon: document.getElementById('themeIcon')
+        };
+
+        const formatS = (s) => s ? new Date(s * 1000).toISOString().substr(11, 8).replace(/^[0:]{3,4}/, '') : '0:00';
+
+        // Theme System
+        const toggleTheme = (isInit = false) => {
+            let dark = ui.html.classList.contains('dark');
+            if(!isInit) {
+                dark = !dark;
+                ui.html.classList.toggle('dark', dark);
+                ui.html.classList.toggle('light', !dark);
+                localStorage.setItem('mb_theme', dark ? 'dark' : 'light');
+            }
+            ui.themeIcon.textContent = dark ? '☀' : '🌙';
+        };
+        if(localStorage.getItem('mb_theme') === 'dark') {
+            ui.html.classList.replace('light', 'dark');
+            toggleTheme(true);
+        }
+
+        ui.themeBtn.addEventListener('click', () => toggleTheme());
+
+        // History Logic
+        const syncH = () => {
+            const h = JSON.parse(localStorage.getItem('mb_final_res') || '[]');
+            if (h.length === 0) return;
+            ui.history.classList.remove('hidden');
+            ui.hGrid.innerHTML = h.reverse().map(i => `<button onclick="ui.input.value='${i.u}'; hunt()" class="px-5 py-2.5 card-boutique text-[11px] font-bold text-zinc-500 hover:text-current transition-all truncate max-w-[180px]">${i.t}</button>`).join('');
+        };
+
+        const pushH = (t, u) => {
+            let h = JSON.parse(localStorage.getItem('mb_final_res') || '[]');
+            h = h.filter(x => x.u !== u);
+            h.push({t, u});
+            localStorage.setItem('mb_final_res', JSON.stringify(h.slice(-12)));
+            syncH();
+        };
+
+        const hunt = async () => {
+            const url = ui.input.value.trim();
+            if (!url) return;
+
+            ui.btn.disabled = true;
+            ui.btn.textContent = "· · ·";
+            ui.error.classList.add('hidden');
+            ui.results.classList.add('hidden');
+            ui.loader.classList.remove('hidden');
+            ui.player.classList.add('hidden');
+
+            try {
+                const r = await fetch('/api/extract', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url })
+                });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.detail || "Extraction failed.");
+
+                ui.title.textContent = d.title;
+                ui.uploader.textContent = d.uploader;
+                ui.duration.textContent = formatS(d.duration);
+
+                if (d.playback_url) {
+                    ui.player.src = d.playback_url;
+                    ui.player.classList.remove('hidden');
+                    ui.loader.classList.add('hidden');
+                    document.getElementById('bigDownloadBtn').href = d.playback_url;
+                }
+
+                ui.formats.innerHTML = d.formats.map(f => `
+                    <div class="card-boutique p-6 flex flex-col justify-between h-full group">
+                        <div class="mb-6">
+                            <span class="tag !text-[9px] mb-2 block">${f.type}</span>
+                            <h4 class="font-bold text-sm tracking-tight leading-snug">${f.label}</h4>
+                            <p class="text-[9px] font-bold text-zinc-400 mt-1 uppercase tracking-widest">${f.quality}</p>
+                        </div>
+                        <a href="${f.url}" download target="_blank" class="block w-full text-center py-2.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-750 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all group-hover:bg-current group-hover:text-inverted">
+                            Save Archive
+                        </a>
+                    </div>
+                `).join('');
+
+                // Custom Save button behavior based on current theme to avoid CSS conflicts
+                const buttons = ui.formats.querySelectorAll('a');
+                buttons.forEach(btn => {
+                   btn.addEventListener('mouseenter', () => {
+                       const isDark = ui.html.classList.contains('dark');
+                       btn.style.backgroundColor = isDark ? '#fff' : '#000';
+                       btn.style.color = isDark ? '#000' : '#fff';
+                   });
+                   btn.addEventListener('mouseleave', () => {
+                       const isDark = ui.html.classList.contains('dark');
+                       btn.style.backgroundColor = isDark ? '#18181b' : '#f4f4f5';
+                       btn.style.color = 'inherit';
+                   });
+                });
+
+                ui.results.classList.remove('hidden');
+                pushH(d.title, url);
+            } catch (e) {
+                ui.error.textContent = e.message;
+                ui.error.classList.remove('hidden');
+            } finally {
+                ui.btn.disabled = false;
+                ui.btn.textContent = "Catch";
+            }
+        };
+
+        ui.btn.onclick = hunt;
+        ui.input.onkeypress = (e) => e.key === 'Enter' && hunt();
+        window.onload = syncH;
+    </script>
+</body>
+</html>

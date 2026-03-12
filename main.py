@@ -11,6 +11,8 @@ import signal
 import shutil
 import asyncio
 import logging
+import psutil  # For server stats
+from datetime import datetime
 from dotenv import load_dotenv
 
 # --- Asynchronous monkey-patch for Pyrogram on Python 3.11+ ---
@@ -22,7 +24,7 @@ except RuntimeError:
 
 # Pyrogram for high-speed Telegram interaction
 import pyrogram
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
     InlineQuery, InlineQueryResultVideo, InputTextMessageContent
@@ -43,7 +45,6 @@ import contextlib
 # ------------------------------------------------------------------
 load_dotenv()
 
-# Setup structured stdout logging for container managers
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -52,16 +53,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Credentials securely loaded from Environment Variables
-API_ID = os.environ.get("API_ID")
-API_HASH = os.environ.get("API_HASH")
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-FORCE_SUB_CHANNEL = os.environ.get("FORCE_SUB_CHANNEL", "stuffsroom") # Without the @
-
-# Optional Owner ID for admin restricted commands (e.g. /broadcast)
-try:
-    OWNER_ID = int(os.environ.get("OWNER_ID", 0))
-except ValueError:
-    OWNER_ID = 0
+API_ID = os.environ.get("API_ID", "").strip()
+API_HASH = os.environ.get("API_HASH", "").strip()
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+OWNER_ID = int(os.environ.get("OWNER_ID", "0").strip())
+SUPPORT_GRP = os.environ.get("SUPPORT_GRP", "t.me/TheTimepassSquad")
+OWNER_USER = os.environ.get("OWNER_USER", "@BeyondRachit")
+XOLV_BRAND = "Xolv"
 
 if not all([API_ID, API_HASH, BOT_TOKEN]):
     logger.error("Missing credentials in environment variables. Please check your .env file.")
@@ -98,31 +96,8 @@ last_update_times = {}
 # Core Utilities
 # ------------------------------------------------------------------
 
-async def check_force_sub(client: Client, user_id: int) -> bool | str:
-    """
-    Checks if the user is a member of the mandatory Updates Channel.
-    Returns True if subscribed, False if not, and a string error if the bot is misconfigured.
-    """
-    if not FORCE_SUB_CHANNEL:
-        return True
-    try:
-        member = await client.get_chat_member(f"@{FORCE_SUB_CHANNEL}", user_id)
-        if member.status in [
-            pyrogram.enums.ChatMemberStatus.MEMBER,
-            pyrogram.enums.ChatMemberStatus.ADMINISTRATOR,
-            pyrogram.enums.ChatMemberStatus.OWNER
-        ]:
-            return True
-        return False
-    except pyrogram.errors.UserNotParticipant:
-        return False
-    except Exception as e:
-        logger.warning(f"Error checking force sub for {user_id}: {e}")
-        # To strictly enforce, if we can't verify (e.g. bot not admin in channel), block them.
-        # The bot MUST be an admin in @stuffsroom for this to work.
-        if "CHAT_ADMIN_REQUIRED" in str(e).upper():
-            return "admin_required"
-        return False
+# Force sub removed for frictionless experience
+# check_force_sub function deleted
 
 def load_users():
     """Loads existing unique users from disk into the fast-access set."""
@@ -187,6 +162,13 @@ def extract_video_info(url: str, message_id: int) -> dict:
         filesize = info.get('filesize') or info.get('filesize_approx') or 0
         if filesize > 50 * 1024 * 1024:
             raise ValueError("TooLarge")
+            
+        # Hardened Thumbnail Logic: Prefer high-quality static images
+        if 'thumbnails' in info and info['thumbnails']:
+            # Filter out non-traditional thumbnail formats if possible and sort by size
+            static_thumbs = [t for t in info['thumbnails'] if t.get('url') and not t.get('url', '').endswith(('.webp', '.m3u8'))]
+            if static_thumbs:
+                info['thumbnail'] = sorted(static_thumbs, key=lambda x: (x.get('width', 0) or 0), reverse=True)[0]['url']
             
         return info
 
@@ -253,28 +235,26 @@ async def progress_callback(current: int, total: int, message: Message, start_ti
 
 async def handle_start_command(client: Client, message: Message):
     """
-    Welcomes the user, explains features, and provides links to the Owner.
+    Welcomes the user to Xolv with a premium, funky, minimal UI.
     """
+    logger.info(f"Start command received from {message.from_user.id}")
     track_user(message.from_user.id)
     
     welcome_text = (
-        "👋 <b>Welcome to the Ultimate Media Downloader Bot!</b>\n\n"
-        "I can download videos from multiple platforms in <b>Highest Quality</b> straight to Telegram!\n\n"
-        "✨ <b>Supported Platforms:</b>\n"
-        "• � Instagram (Reels, Posts, IGTV, Stories)\n"
-        "• 🎵 TikTok (No Watermark)\n"
-        "• � YouTube (Shorts & Regular Videos)\n"
-        "• 🐦 Twitter / X\n"
-        "• � Pinterest\n"
-        "• 📘 Facebook Videos\n\n"
-        "👇 <b>How to use:</b>\n"
-        "Just send me <b>any link</b> and I will do the rest automatically!\n\n"
-        "👨‍💻 <b>Owner & Developer:</b> <a href='https://t.me/beyondrachit'>@beyondrachit</a>"
+        f"💎 <b>{XOLV_BRAND} Boutique</b>\n"
+        "〰〰〰〰〰〰〰〰〰〰\n"
+        "The fastest way to catch media from Instagram, TikTok, YouTube & more.\n\n"
+        "✨ <b>Features:</b>\n"
+        "• No Ads, No Friction\n"
+        "• Highest Quality\n"
+        "• OLED Aesthetic\n\n"
+        "🚀 <b>Just send me a link to catch it!</b>\n\n"
+        f"👨‍💻 <b>Owner:</b> {OWNER_USER}"
     )
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("� Join Updates Channel", url=f"https://t.me/{FORCE_SUB_CHANNEL}")],
-        [InlineKeyboardButton("👨‍� Contact Owner", url="https://t.me/beyondrachit")]
+        [InlineKeyboardButton("➕ Support Squad", url=f"https://{SUPPORT_GRP}")],
+        [InlineKeyboardButton("👨‍💻 Admin", url=f"https://t.me/{OWNER_USER.replace('@', '')}")]
     ])
     
     await message.reply_text(
@@ -289,6 +269,7 @@ async def handle_media_links(client: Client, message: Message):
     Intercepts any message containing supported media links. 
     Enforces channel subscription, then extracts and uploads.
     """
+    logger.info(f"Media link received from {message.from_user.id}: {message.text[:50]}...")
     global is_shutting_down
     if is_shutting_down:
         await message.reply_text("💤 <b>Bot is shutting down or restarting. Please try again later.</b>", parse_mode=ParseMode.HTML)
@@ -296,24 +277,7 @@ async def handle_media_links(client: Client, message: Message):
 
     track_user(message.from_user.id)
 
-    # 1. Force Subscribe Check
-    is_subscribed = await check_force_sub(client, message.from_user.id)
-    if is_subscribed == "admin_required":
-        await message.reply_text("⚠️ <b>Bot Configuration Error:</b> The bot must be made an Administrator in the Updates Channel before it can verify members.", parse_mode=ParseMode.HTML)
-        return
-    elif not is_subscribed:
-        join_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📣 Join Channel to Use Bot", url=f"https://t.me/{FORCE_SUB_CHANNEL}")],
-            [InlineKeyboardButton("🔄 I have joined! Try again.", callback_data="check_join")]
-        ])
-        await message.reply_text(
-            "🔒 <b>You must join our Updates Channel first!</b>\n\n"
-            "This bot is completely free, but to keep using it, please join the channel below.",
-            reply_markup=join_kb,
-            parse_mode=ParseMode.HTML,
-            reply_to_message_id=message.id
-        )
-        return
+    # Force sub logic removed
 
     # Track task for graceful shutdown
     current_task = asyncio.current_task()
@@ -365,29 +329,22 @@ async def handle_media_links(client: Client, message: Message):
                 if not filepath or not os.path.exists(filepath):
                     raise ValueError("Download failed, file not found on disk.")
                 
-                # Format Premium Metadata
-                title = info.get('title', 'Media Video') or 'Media Video'
-                uploader = info.get('uploader', 'Unknown User')
-                caption_text = info.get('description', '') or title
+                # Format Funky Minimal Metadata
+                title = info.get('title', 'Media Result')
+                platform = info.get('extractor_key', 'Link')
                 duration = info.get('duration', 0)
-                width = info.get('width', 0)
-                height = info.get('height', 0)
-                resolution = f"{width}x{height}" if width and height else "Unknown"
-                platform = info.get('extractor_key', 'Unknown')
                 
-                # Build rich HTML caption
+                # Funky caption
                 caption_html = (
-                    f"🎥 <b>{html.escape(title[:60])}</b>\n"
-                    f"👤 <b>By:</b> <code>{html.escape(uploader)}</code>\n"
-                    f"📐 <b>Res:</b> {resolution} | <b>Platform:</b> {platform}\n\n"
-                    f"📝 {html.escape(caption_text[:150])}... \n\n"
-                    f"✨ <i>Downloaded via <a href='https://t.me/{FORCE_SUB_CHANNEL}'>@{FORCE_SUB_CHANNEL}</a></i>"
+                    f"✨ <b>{html.escape(title[:60])}</b>\n"
+                    f"🏷️ <code>{platform}</code>\n\n"
+                    f"💎 <b>{XOLV_BRAND} Elite</b>"
                 )
                 
                 inline_kb = InlineKeyboardMarkup([
                     [
-                        InlineKeyboardButton("🔗 Original Post", url=url),
-                        InlineKeyboardButton("📣 Updates Channel", url=f"https://t.me/{FORCE_SUB_CHANNEL}")
+                        InlineKeyboardButton("🔗 Origin", url=url),
+                        InlineKeyboardButton("➕ Support", url=f"https://{SUPPORT_GRP}")
                     ]
                 ])
                 
@@ -434,44 +391,31 @@ async def handle_media_links(client: Client, message: Message):
         active_tasks.remove(current_task)
 
 async def handle_check_join(client: Client, query: CallbackQuery):
-    """
-    Handles the Callback Query from the Force Join prompt's 'Try again' button.
-    If joined, it re-triggers the media extraction synchronously.
-    """
-    is_subscribed = await check_force_sub(client, query.from_user.id)
-    if is_subscribed == "admin_required":
-        await query.answer("⚠️ The bot must be made an Administrator in the channel to verify members!", show_alert=True)
-        return
-    elif not is_subscribed:
-        await query.answer("❌ You still haven't joined the channel!", show_alert=True)
-        return
-        
-    await query.answer("✅ Verified! Processing your link...", show_alert=False)
+    """Callback for join check. Not needed anymore but kept for compatibility."""
+    await query.answer("✅ Verification no longer required! Enjoy Xolv.", show_alert=True)
     await query.message.delete()
-    
-    # query.message.reply_to_message contains the original user's message with the link
-    original_message = query.message.reply_to_message
-    if original_message and original_message.text:
-        await handle_media_links(client, original_message)
-    else:
-        await client.send_message(query.message.chat.id, "✅ Verified! Please send your link again.")
 
 async def handle_stats_command(client: Client, message: Message):
-    """Public command displaying the bot's health, traffic, and uptime."""
+    """Admin command displaying server details, users, and health."""
     track_user(message.from_user.id)
     
-    # Calculate lively uptime
+    if OWNER_ID and message.from_user.id != OWNER_ID:
+        return # Stats restricted to owner
+        
+    # Server Metrics
+    cpu_usage = psutil.cpu_percent()
+    ram = psutil.virtual_memory()
     uptime_seconds = int(time.time() - BOT_START_TIME)
-    hours, remainder = divmod(uptime_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    uptime_str = f"{hours}h {minutes}m {seconds}s"
     
     stats_text = (
-        "📊 <b>Bot Statistics</b>\n\n"
+        f"📊 <b>{XOLV_BRAND} Server Metrics</b>\n"
+        "〰〰〰〰〰〰〰〰〰〰\n"
         f"👥 <b>Total Users:</b> <code>{len(tracked_users)}</code>\n"
-        f"⚡ <b>Active Downloads:</b> <code>{len(active_tasks)}</code>\n"
-        f"⏱️ <b>Uptime:</b> <code>{uptime_str}</code>\n"
-        f"💻 <b>Ping:</b> <code>{(time.time() - message.date.timestamp()) * 1000:.1f}ms</code>"
+        f"⚡ <b>Active Tasks:</b> <code>{len(active_tasks)}</code>\n\n"
+        f"🖥️ <b>CPU Usage:</b> <code>{cpu_usage}%</code>\n"
+        f"🧠 <b>RAM Usage:</b> <code>{ram.percent}%</code>\n"
+        f"⏱️ <b>Uptime:</b> <code>{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m</code>\n"
+        f"💾 <b>Disk:</b> <code>{psutil.disk_usage('/').percent}%</code>"
     )
     await message.reply_text(stats_text, parse_mode=ParseMode.HTML)
 
@@ -607,8 +551,8 @@ async def serve_dashboard(request: Request):
 @web_app.post("/api/extract")
 async def api_extract_media(req: ExtractionRequest):
     """
-    Takes a link pasted into the Web UI, leverages the shared Python Semaphore 
-    to extract the raw streams safely, and returns the direct .url objects.
+    Boutique Extraction API.
+    Provides a primary playback URL and a curated list of download options.
     """
     url = req.url.strip()
     if not url or not re.match(SUPPORTED_LINKS_REGEX, url):
@@ -618,33 +562,63 @@ async def api_extract_media(req: ExtractionRequest):
         async with DOWNLOAD_SEMAPHORE:
             info = await asyncio.wait_for(
                 asyncio.to_thread(extract_video_info, url, int(time.time())), 
-                timeout=60.0
+                timeout=45.0
             )
-            
-        title = info.get('title', 'Extracted Media')
-        # We need the highest quality direct URL
-        direct_video = info.get('url') 
-        direct_audio = None
+
+        if "TooLarge" in str(info):
+            raise HTTPException(status_code=400, detail="File too large for direct web extraction (>50MB).")
+
+        # Sort and filter for the best playable combined format
+        formats_list = []
+        playback_url = info.get('url') # Default
         
-        # In case formats are detached (like YouTube Dash)
-        if 'requested_formats' in info:
-            for fmt in info['requested_formats']:
-                if fmt.get('vcodec') != 'none':
-                    direct_video = fmt.get('url')
-                elif fmt.get('acodec') != 'none':
-                    direct_audio = fmt.get('url')
-                    
-        return JSONResponse({
-            "success": True, 
-            "title": title, 
-            "video_url": direct_video, 
-            "audio_url": direct_audio or direct_video
-        })
+        # Prefer progressive MP4s with both audio and video for the web player
+        if 'formats' in info:
+            all_fmts = info['formats']
+            progressive = [f for f in all_fmts if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url') and f.get('ext') == 'mp4']
+            if progressive:
+                # Pick the highest resolution progressive MP4
+                best_prog = sorted(progressive, key=lambda x: (x.get('width', 0) or 0), reverse=True)[0]
+                playback_url = best_prog['url']
+
+        # Construct download format cards
+        if playback_url:
+            formats_list.append({
+                "label": "High Quality Video",
+                "url": playback_url,
+                "ext": "mp4",
+                "type": "video",
+                "quality": info.get('resolution', 'HD')
+            })
+
+        # Add Audio Only fallback
+        if 'formats' in info:
+            audio_only = [f for f in info['formats'] if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('url')]
+            if audio_only:
+                best_audio = sorted(audio_only, key=lambda x: x.get('abr', 0) or 0)[-1]
+                formats_list.append({
+                    "label": "Music / Audio Only",
+                    "url": best_audio['url'],
+                    "ext": best_audio.get('ext', 'm4a'),
+                    "type": "audio",
+                    "quality": f"{int(best_audio.get('abr', 0) or 128)}kbps"
+                })
+
+        return {
+            "success": True,
+            "title": info.get('title', 'Extracted Media'),
+            "thumbnail": info.get('thumbnail', ''),
+            "duration": info.get('duration', 0),
+            "uploader": info.get('uploader', 'Unknown'),
+            "playback_url": playback_url,
+            "formats": formats_list,
+            "original_url": url
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Extraction timed out. Try again.")
     except Exception as e:
-        logger.error(f"Web API Extraction failed: {e}", exc_info=True)
-        if "TooLarge" in str(e):
-             raise HTTPException(status_code=400, detail="File too large (>50MB).")
-        raise HTTPException(status_code=500, detail="Extraction Engine Error. The Video may be private, age-restricted, or rate-limited.")
+        logger.error(f"MediaBox API Error: {e}")
+        raise HTTPException(status_code=500, detail="Extraction Engine Error. The link might be expired or restricted.")
 
 # ------------------------------------------------------------------
 # Main Loop and Graceful Shutdown
@@ -652,48 +626,38 @@ async def api_extract_media(req: ExtractionRequest):
 
 async def main():
     global is_shutting_down, DOWNLOAD_SEMAPHORE
-    # Setup the globally shared extraction choke-point (Max 2 simultaneous tasks)
+    
+    # 1. Initialize Concurrency Control (Max 2 simultaneous tasks for 1GB RAM)
     DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
     
-    # Initialize Pyrogram App safely inside the active asyncio loop
+    # 2. Setup Bot Client
     from pyrogram.handlers import MessageHandler, CallbackQueryHandler, InlineQueryHandler
     app = Client(
-        "ig_reels_bot",
+        "xolv_production",
         api_id=int(API_ID),
         api_hash=API_HASH,
-        bot_token=BOT_TOKEN,
-        in_memory=True
+        bot_token=BOT_TOKEN
     )
     
-    # Register the handlers dynamically instead of using decorators
-    app.add_handler(MessageHandler(
-        handle_start_command, 
-        filters.command("start") & filters.private
-    ))
-    app.add_handler(MessageHandler(
-        handle_stats_command,
-        filters.command("stats") & filters.private
-    ))
-    app.add_handler(MessageHandler(
-        handle_broadcast_command,
-        filters.command("broadcast") & filters.private
-    ))
-    app.add_handler(MessageHandler(
-        handle_media_links, 
-        filters.regex(SUPPORTED_LINKS_REGEX) & filters.private
-    ))
-    app.add_handler(CallbackQueryHandler(
-        handle_check_join,
-        filters.regex("^check_join$")
-    ))
+    # Register Core Bot Handlers
+    app.add_handler(MessageHandler(handle_start_command, filters.command("start") & filters.private))
+    app.add_handler(MessageHandler(handle_stats_command, filters.command("stats") & filters.private))
+    app.add_handler(MessageHandler(handle_broadcast_command, filters.command("broadcast") & filters.private))
+    app.add_handler(MessageHandler(handle_media_links, filters.regex(SUPPORTED_LINKS_REGEX) & filters.private))
+    app.add_handler(CallbackQueryHandler(handle_check_join, filters.regex("^check_join$")))
     app.add_handler(InlineQueryHandler(handle_inline_query))
     
     # Hydrate tracked users at boot
     load_users()
-    
-    logger.info("Starting Telegram Bot...")
-    await app.start()
-    logger.info("Bot is active and polling. Ready for links!")
+
+    # Start the Bot
+    try:
+        await app.start()
+        bot_info = await app.get_me()
+        logger.info(f"✅ Bot success: @{bot_info.username} (ID: {bot_info.id})")
+    except Exception as e:
+        logger.error(f"❌ Bot failed to start: {e}", exc_info=True)
+        return
 
     # -----------------------------------------------------
     # Spin up Uvicorn (FastAPI) inside the Pyrogram Event Loop
@@ -707,27 +671,12 @@ async def main():
     fastapi_task = loop.create_task(server.serve())
     logger.info("⚡ Web Dashboard launched on port 8000.")
 
-    stop_event = asyncio.Event()
+    logger.info("⚡ Web Dashboard launched on port 8000.")
 
-    # Trap container interruption signals (Kubernetes/Docker/Ctrl+C)
-    def handle_signal(sig):
-        logger.info(f"Signal {sig.name} detected! Initiating graceful shutdown...")
-        global is_shutting_down
-        is_shutting_down = True
-        loop.call_soon_threadsafe(stop_event.set)
+    # Use pyrogram.idle() to gracefully block and handle signals while dispatching updates
+    await idle()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
-        except NotImplementedError:
-            # add_signal_handler is not fully supported on Windows.
-            # Fallback to default keyboard interrupt handling.
-            pass
-
-    # Wait until a stop signal is fired
-    await stop_event.wait()
-
-    # Graceful Shutdown Sequence Guaranteeing No Corruption
+    # Graceful Shutdown Sequence
     if active_tasks:
         logger.info(f"Waiting for {len(active_tasks)} active task(s) to finalize...")
         await asyncio.gather(*active_tasks, return_exceptions=True)
