@@ -92,10 +92,52 @@
         <!-- Navigation -->
         <header class="mb-16 flex justify-between items-center">
             <h1 class="text-2xl font-black tracking-tighter uppercase italic">Xolv</h1>
-            <button id="themeToggle" class="p-2.5 rounded-full border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all">
-                <span id="themeIcon" class="text-sm">🌙</span>
-            </button>
+            <div class="flex items-center gap-4">
+                <a href="https://t.me/BeyondRachit" target="_blank" class="p-2.5 rounded-full border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group relative">
+                    <span class="text-sm">👨‍💻</span>
+                    <span class="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-[10px] font-bold px-3 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">Owner</span>
+                </a>
+                <button id="aboutToggle" class="p-2.5 rounded-full border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group relative">
+                    <span class="text-sm">📔</span>
+                    <span class="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-zinc-900 text-white text-[10px] font-bold px-3 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">About</span>
+                </button>
+                <button id="themeToggle" class="p-2.5 rounded-full border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all">
+                    <span id="themeIcon" class="text-sm">🌙</span>
+                </button>
+            </div>
         </header>
+
+        <!-- About Xolv Section (Manual) -->
+        <section id="aboutSection" class="hidden mb-24 max-w-3xl mx-auto reveal">
+            <div class="card-boutique p-8 md:p-12 space-y-12">
+                <div class="space-y-4">
+                    <h2 class="text-4xl font-black tracking-tight font-outfit uppercase italic">What is Xolv?</h2>
+                    <p class="text-zinc-500 leading-relaxed">Xolv is a high-speed, boutique media extraction hub. We focus on zero friction and premium aesthetics, allowing you to catch media from Instagram, TikTok, YouTube, and more with clinical precision.</p>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="space-y-4">
+                        <span class="tag">01. Website</span>
+                        <h4 class="font-bold">Paste & Go</h4>
+                        <p class="text-xs text-zinc-400 leading-relaxed">Paste any link in the search bar above. Xolv will analyze, play, and provide high-quality download mirrors instantly.</p>
+                    </div>
+                    <div class="space-y-4">
+                        <span class="tag">02. Telegram Bot</span>
+                        <h4 class="font-bold">Native Catch</h4>
+                        <p class="text-xs text-zinc-400 leading-relaxed">Send links to <a href="https://t.me/XolvBot" target="_blank" class="text-zinc-900 dark:text-white underline">@XolvBot</a>. It delivers media directly into your Telegram chats as native video files.</p>
+                    </div>
+                    <div class="space-y-4">
+                        <span class="tag">03. Inline Search</span>
+                        <h4 class="font-bold">Stealth Share</h4>
+                        <p class="text-xs text-zinc-400 leading-relaxed">Type <code>@XolvBot [link]</code> in any chat. Search and share media secretly without ever leaving the conversation.</p>
+                    </div>
+                </div>
+                
+                <div class="pt-8 border-t border-zinc-100 dark:border-zinc-900 flex justify-center">
+                    <button onclick="document.getElementById('aboutSection').classList.add('hidden')" class="tag hover:text-black dark:hover:text-white transition-all">Close Manual</button>
+                </div>
+            </div>
+        </section>
 
         <!-- Main Input Section -->
         <section class="mb-24 max-w-2xl mx-auto">
@@ -105,6 +147,12 @@
                 <button id="extractBtn" class="btn-primary px-10 py-4 rounded-xl text-[11px] font-black uppercase tracking-widest">
                     Solve
                 </button>
+            </div>
+            <div class="mt-8 flex justify-center">
+                <a href="https://t.me/XolvBot" target="_blank" class="tag flex items-center gap-2 px-6 py-2.5 rounded-full border border-zinc-100 dark:border-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all group">
+                    <span class="opacity-40 group-hover:opacity-100 transition-opacity">🤖</span>
+                    <span class="text-zinc-400 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors">Download via Telegram</span>
+                </a>
             </div>
             <p id="errorMsg" class="mt-5 text-center text-[10px] text-rose-500 font-bold uppercase hidden tracking-widest"></p>
         </section>
@@ -210,6 +258,15 @@
         }
 
         ui.themeBtn.addEventListener('click', () => toggleTheme());
+
+        // About Manual Toggle
+        document.getElementById('aboutToggle').addEventListener('click', () => {
+            const about = document.getElementById('aboutSection');
+            about.classList.toggle('hidden');
+            if(!about.classList.contains('hidden')) {
+                about.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
 
         // History Logic
         const syncH = () => {

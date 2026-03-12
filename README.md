@@ -2,6 +2,10 @@
 
 Xolv is a high-end, boutique extraction tool designed for seamless media collection from Instagram, TikTok, YouTube, Twitter/X, and more. Featuring a unified hybrid architecture (Telegram Bot + Web Dashboard) and a sophisticated OLED aesthetic.
 
+## 🌐 Official Instances
+- **Web Dashboard**: [xolv.beyondrachit.me](https://xolv.beyondrachit.me)
+- **Telegram Bot**: [@XolvBot](https://t.me/XolvBot)
+
 ## ✨ Boutique Features
 - **Zero Friction**: No forced subscriptions, no ads, no clutter.
 - **Elite Dashboard**: A responsive, side-by-side web experience with native video playback.

@@ -253,6 +253,7 @@ async def handle_start_command(client: Client, message: Message):
     )
     
     keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 Download via Browser", url="https://xolv.beyondrachit.me")],
         [InlineKeyboardButton("➕ Support Squad", url=f"https://{SUPPORT_GRP}")],
         [InlineKeyboardButton("👨‍💻 Admin", url=f"https://t.me/{OWNER_USER.replace('@', '')}")]
     ])
@@ -342,6 +343,7 @@ async def handle_media_links(client: Client, message: Message):
                 )
                 
                 inline_kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🌐 Download via Browser", url="https://xolv.beyondrachit.me")],
                     [
                         InlineKeyboardButton("🔗 Origin", url=url),
                         InlineKeyboardButton("➕ Support", url=f"https://{SUPPORT_GRP}")
