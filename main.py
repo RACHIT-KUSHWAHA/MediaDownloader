@@ -136,9 +136,9 @@ def extract_video_info(url: str, message_id: int) -> dict:
             headers = {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
-            payload = {'url': url}
+            payload = {'url': url, 'vQuality': '720'}
             
             response = requests.post(cobalt_url, headers=headers, json=payload, timeout=10)
             if response.status_code == 200:
@@ -151,8 +151,10 @@ def extract_video_info(url: str, message_id: int) -> dict:
                         'filesize_approx': 0,
                         'duration': 0
                     }
+            raise ValueError("YouTube downloads are temporarily overloaded. Please try again later.")
         except Exception as e:
             logger.warning(f"Cobalt API failed for {url}: {e}")
+            raise ValueError("YouTube downloads are temporarily overloaded. Please try again later.")
     # ---------------------------------------
     
     # Dynamically locate FFmpeg to bypass Windows terminal Path un-refreshing
@@ -211,8 +213,8 @@ def download_video_to_disk(url: str, message_id: int, opts: dict, extract_info: 
                     f.write(chunk)
             return final_file
         except Exception as e:
-            logger.warning(f"Direct Cobalt download failed, falling back to yt-dlp: {e}")
-            # If standard request fails, let yt-dlp try below
+            logger.warning(f"Direct Cobalt download failed: {e}")
+            raise ValueError("YouTube downloads are temporarily overloaded. Please try again later.")
     
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
