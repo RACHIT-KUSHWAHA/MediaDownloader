@@ -136,9 +136,11 @@ def extract_video_info(url: str, message_id: int) -> dict:
             headers = {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
+                'Origin': 'https://cobalt.tools',
+                'Referer': 'https://cobalt.tools/',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
-            payload = {'url': url, 'vQuality': '720'}
+            payload = {'url': url}
             
             response = requests.post(cobalt_url, headers=headers, json=payload, timeout=10)
             if response.status_code == 200:
