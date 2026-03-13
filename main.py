@@ -12,6 +12,7 @@ import shutil
 import asyncio
 import logging
 import psutil  # For server stats
+import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -128,6 +129,32 @@ def extract_video_info(url: str, message_id: int) -> dict:
     """
     os.makedirs("downloads", exist_ok=True)
     
+    # --- Cobalt API Fallback for YouTube ---
+    if "youtube.com" in url or "youtu.be" in url:
+        try:
+            cobalt_url = "https://api.cobalt.tools/api/json"
+            headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0'
+            }
+            payload = {'url': url}
+            
+            response = requests.post(cobalt_url, headers=headers, json=payload, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if 'url' in data:
+                    return {
+                        'url': data['url'],
+                        'title': 'YouTube Video',
+                        'extractor_key': 'youtube',
+                        'filesize_approx': 0,
+                        'duration': 0
+                    }
+        except Exception as e:
+            logger.warning(f"Cobalt API failed for {url}: {e}")
+    # ---------------------------------------
+    
     # Dynamically locate FFmpeg to bypass Windows terminal Path un-refreshing
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path and os.name == "nt":
@@ -168,9 +195,25 @@ def extract_video_info(url: str, message_id: int) -> dict:
             
         return info
 
-def download_video_to_disk(url: str, message_id: int, opts: dict) -> str:
-    """Distinctly downloads the file to disk using yt-dlp."""
+def download_video_to_disk(url: str, message_id: int, opts: dict, extract_info: dict = None) -> str:
+    """Distinctly downloads the file to disk using yt-dlp or direct requests if fetched via Cobalt."""
     os.makedirs("downloads", exist_ok=True)
+    
+    if extract_info and extract_info.get('extractor_key') == 'youtube' and extract_info.get('url'):
+        # Cobalt API returned a direct download link, use requests to download it
+        direct_url = extract_info['url']
+        final_file = f"downloads/{message_id}_cobalt.mp4"
+        try:
+            response = requests.get(direct_url, stream=True, timeout=60)
+            response.raise_for_status()
+            with open(final_file, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return final_file
+        except Exception as e:
+            logger.warning(f"Direct Cobalt download failed, falling back to yt-dlp: {e}")
+            # If standard request fails, let yt-dlp try below
+    
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
         
@@ -320,7 +363,7 @@ async def handle_media_links(client: Client, message: Message):
                     }
                     if ffmpeg_path: ydl_opts['ffmpeg_location'] = ffmpeg_path
                     
-                    filepath = await asyncio.to_thread(download_video_to_disk, url, message.id, ydl_opts)
+                    filepath = await asyncio.to_thread(download_video_to_disk, url, message.id, ydl_opts, info)
                 # --------------------- END OF CONCURRENCY LOCK -----------------------------
                 
                 if not filepath or not os.path.exists(filepath):
