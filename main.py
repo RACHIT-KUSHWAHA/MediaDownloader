@@ -129,9 +129,6 @@ def extract_video_info(url: str, message_id: int) -> dict:
     """
     os.makedirs("downloads", exist_ok=True)
     
-    if 'youtube.com' in url or 'youtu.be' in url:
-        raise ValueError('❌ YouTube is not supported due to strict server restrictions. Please send Instagram, Facebook, TikTok or Twitter links! 🚀')
-    
     # Dynamically locate FFmpeg to bypass Windows terminal Path un-refreshing
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path and os.name == "nt":
@@ -151,7 +148,14 @@ def extract_video_info(url: str, message_id: int) -> dict:
         'http_chunk_size': 10485760,
         'concurrent_fragment_downloads': 1,
         'postprocessor_args': ['-threads', '1', '-preset', 'ultrafast'],
-        'cookiefile': 'cookies.txt'
+        'cookiefile': 'cookies.txt',
+        'forced_ipv4': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tvhtml5', 'web_embedded'], 
+                'player_skip': ['web', 'mweb', 'android', 'ios']
+            }
+        }
     }
     
     if ffmpeg_path:
@@ -321,7 +325,14 @@ async def handle_media_links(client: Client, message: Message):
                         'http_chunk_size': 10485760,
                         'concurrent_fragment_downloads': 1,
                         'postprocessor_args': ['-threads', '1', '-preset', 'ultrafast'],
-                        'cookiefile': 'cookies.txt'
+                        'cookiefile': 'cookies.txt',
+                        'forced_ipv4': True,
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': ['tvhtml5', 'web_embedded'], 
+                                'player_skip': ['web', 'mweb', 'android', 'ios']
+                            }
+                        }
                     }
                     if ffmpeg_path: ydl_opts['ffmpeg_location'] = ffmpeg_path
                     
